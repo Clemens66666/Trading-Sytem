@@ -93,3 +93,4 @@ We are building an ML trading sytem
 * **Codex‐Prompt**: Formuliere anhand dieser Anleitung ein Skript, das automatisiert alle Dateien einliest, mergen und aufräumt.
 * **Implementation**: Führe die Schritte 1–6 durch, committe in ein neues Git‐Repo.
 * **Live‐Deployment**: Trainer‐Pickles stehen dann sofort für die Produktions‐Pipeline bereit.
+* für das testen der scripte benutzte die RawtickDataTestData.zip aber für die finalle version benutzte die gleiche wie oben steht 
