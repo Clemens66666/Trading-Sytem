@@ -9,8 +9,8 @@ from sklearn.base import BaseEstimator, TransformerMixin
 
 
 def read_raw_csv(path: Path, chunksize: int = 5_000_000) -> Generator[pd.DataFrame, None, None]:
-    """Yield normalized CSV chunks with lower-case column names."""
-    for chunk in pd.read_csv(path, chunksize=chunksize):
+    """Yield normalised CSV chunks (supports ZIP) with lower case columns."""
+    for chunk in pd.read_csv(path, chunksize=chunksize, compression="infer"):
         chunk.columns = [c.strip().lower().replace(" ", "_") for c in chunk.columns]
         yield chunk
 
@@ -23,7 +23,15 @@ def make_bars(df: pd.DataFrame, freq: str = "5T") -> pd.DataFrame:
     df.set_index(ts_col, inplace=True)
     price_col = "price"
     if price_col not in df.columns:
-        for c in ("close", "bid", "ask", "last"):
+        for c in (
+            "close",
+            "bid",
+            "ask",
+            "last",
+            "tick_last",
+            "tick_bid",
+            "tick_ask",
+        ):
             if c in df.columns:
                 price_col = c
                 break
@@ -50,8 +58,60 @@ class FeatureBuilder:
             self.df[f"close_lag{l}"] = self.df["close"].shift(l)
         return self
 
+    def add_volume(self, wins: Tuple[int, int] = (12, 72)) -> "FeatureBuilder":
+        if "volume" not in self.df.columns:
+            self.df["volume"] = 0.0
+        short, long = wins
+        self.df["vol_short"] = self.df["volume"].rolling(short).sum().fillna(0)
+        self.df["vol_long"] = self.df["volume"].rolling(long).sum().fillna(0)
+        return self
+
+    def add_returns(self, wins: Tuple[int, int] = (1, 5)) -> "FeatureBuilder":
+        s1, s5 = wins
+        self.df["ret_1"] = self.df["close"].pct_change(s1).fillna(0)
+        self.df["ret_5"] = self.df["close"].pct_change(s5).fillna(0)
+        return self
+
+    def add_sma(self, wins: Tuple[int, int] = (12, 72)) -> "FeatureBuilder":
+        fast, slow = wins
+        self.df["sma_fast"] = self.df["close"].rolling(fast).mean().bfill()
+        self.df["sma_slow"] = self.df["close"].rolling(slow).mean().bfill()
+        return self
+
+    def add_rsi(self, win: int = 14) -> "FeatureBuilder":
+        d = self.df["close"].diff()
+        up = d.clip(lower=0)
+        dn = -d.clip(upper=0)
+        rs = up.ewm(alpha=1 / win, adjust=False).mean() / (dn.ewm(alpha=1 / win, adjust=False).mean() + 1e-8)
+        self.df["rsi"] = 100 - 100 / (1 + rs)
+        return self
+
+    def add_macd(self, fast: int = 12, slow: int = 26, sig: int = 9) -> "FeatureBuilder":
+        ema_fast = self.df["close"].ewm(span=fast, adjust=False).mean()
+        ema_slow = self.df["close"].ewm(span=slow, adjust=False).mean()
+        macd = ema_fast - ema_slow
+        self.df["macd"] = macd
+        self.df["macd_signal"] = macd.ewm(span=sig, adjust=False).mean()
+        return self
+
+    def add_ofi(self) -> "FeatureBuilder":
+        if "volume" not in self.df.columns:
+            self.df["volume"] = 0.0
+        self.df["ofi_min"] = self.df["close"].diff().fillna(0) * self.df["volume"]
+        return self
+
     def build(self) -> pd.DataFrame:
-        return self.add_basic().add_lags().df.fillna(0)
+        return (
+            self.add_basic()
+            .add_lags()
+            .add_volume()
+            .add_returns()
+            .add_sma()
+            .add_rsi()
+            .add_macd()
+            .add_ofi()
+            .df.fillna(0)
+        )
 
 
 class MarketSentimentTransformer(BaseEstimator, TransformerMixin):
@@ -197,6 +257,18 @@ def filter_valid_estimators(models: dict) -> List[Tuple[str, BaseEstimator]]:
             continue
         valid.append((name, est))
     return valid
+
+
+def stack_predict(model_dict: dict, X: pd.DataFrame) -> np.ndarray:
+    """Return stacked probability for class 1 from rf+gb meta ensemble."""
+    rf = model_dict.get("rf")
+    gb = model_dict.get("gb")
+    meta = model_dict.get("meta")
+    stack = np.column_stack([
+        rf.predict_proba(X)[:, 1],
+        gb.predict_proba(X)[:, 1],
+    ])
+    return meta.predict_proba(stack)[:, 1]
 
 
 def split_datasets(df: pd.DataFrame, is_end_date: pd.Timestamp, oos1_end_date: pd.Timestamp) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:

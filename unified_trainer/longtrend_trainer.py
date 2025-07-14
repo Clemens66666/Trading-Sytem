@@ -8,11 +8,13 @@ from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import log_loss
 
-from .helpers import read_raw_csv, make_bars, FeatureBuilder, split_datasets, ts_split
+from .helpers import read_raw_csv, make_bars, FeatureBuilder, split_datasets, ts_split, stack_predict
 
 
-def load_data(path: str) -> pd.DataFrame:
+def load_data(path: str, nrows: int | None = None) -> pd.DataFrame:
     raw = next(read_raw_csv(Path(path)))
+    if nrows:
+        raw = raw.head(nrows)
     bars = make_bars(raw, freq="1H")
     df = FeatureBuilder(bars).build()
     df["target"] = (df["close"].shift(-1) > df["close"]).astype(int)
@@ -20,15 +22,15 @@ def load_data(path: str) -> pd.DataFrame:
     return df
 
 
-def main(config_path: str = "config.yaml") -> None:
+def main(config_path: str = "config.yaml", nrows: int | None = None) -> None:
     config = yaml.safe_load(open(config_path))
-    df = load_data(config["raw_tick_path"])
+    df = load_data(config["raw_tick_path"], nrows=nrows)
     is_end = df["timestamp"].iloc[int(len(df) * 0.6)]
     oos1_end = df["timestamp"].iloc[int(len(df) * 0.8)]
     df_is, df_oos1, df_oos2 = split_datasets(df, is_end, oos1_end)
 
     y = df_is.pop("target")
-    X = df_is
+    X = df_is.drop(columns=["timestamp"])
 
     def objective(trial: optuna.trial.Trial) -> float:
         hp = {
