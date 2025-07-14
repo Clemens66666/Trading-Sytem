@@ -19,3 +19,4 @@ def test_pipeline(tmp_path):
     exit_main(str(cfg_path), nrows=100000)
     for key in ['longtrend','entry','exit']:
         assert os.path.exists(cfg['output_paths'][key])
+        os.remove(cfg['output_paths'][key])

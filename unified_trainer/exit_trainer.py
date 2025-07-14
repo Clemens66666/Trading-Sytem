@@ -15,7 +15,6 @@ from .helpers import (
     split_datasets,
     ts_split,
     stack_predict,
-    triple_barrier_label,
 )
 
 
@@ -74,13 +73,7 @@ def main(config_path: str = "config.yaml", nrows: int | None = None) -> None:
         if entry_ser is not None:
             df_feat["entry_prob_long"] = entry_ser.reindex(df_feat["timestamp"], method="ffill").values
             df_feat["entry_prob_short"] = 1.0 - df_feat["entry_prob_long"]
-        df_feat["target"] = triple_barrier_label(
-            df_feat,
-            trial.suggest_int("hor", 5, 24),
-            trial.suggest_float("thr_up", 0.002, 0.01),
-            trial.suggest_float("thr_dn", 0.002, 0.01),
-        )
-        df_feat["target"] = (df_feat["target"] == 1).astype(int)
+        df_feat["target"] = (df_feat["close"].shift(-1) > df_feat["close"]).astype(int)
         if df_feat["target"].nunique() < 2:
             df_feat["target"] = (df_feat["close"].shift(-1) > df_feat["close"]).astype(int)
         df_feat.dropna(inplace=True)

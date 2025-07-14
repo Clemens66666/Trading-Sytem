@@ -45,7 +45,7 @@ def main(config_path: str = "config.yaml", nrows: int | None = None) -> None:
         )
         df_feat["target"] = triple_barrier_label(
             df_feat,
-            trial.suggest_int("hor", 5, 24),
+            trial.suggest_int("hor", 1, 3),
             trial.suggest_float("thr_up", 0.002, 0.01),
             trial.suggest_float("thr_dn", 0.002, 0.01),
         )

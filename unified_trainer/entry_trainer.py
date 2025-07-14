@@ -34,7 +34,7 @@ def main(config_path: str = "config.yaml", nrows: int | None = None) -> None:
             trend_obj = pickle.load(f)["model"]
 
     raw = load_raw(config["raw_tick_path"], nrows=nrows)
-    bars_entry = make_bars(raw, freq="10T")
+    bars_entry = make_bars(raw, freq="5T")
     is_end = bars_entry["timestamp"].iloc[int(len(bars_entry) * 0.6)]
     oos1_end = bars_entry["timestamp"].iloc[int(len(bars_entry) * 0.8)]
 
@@ -59,7 +59,7 @@ def main(config_path: str = "config.yaml", nrows: int | None = None) -> None:
             df_feat["trend_prob_long"] = trend_ser.reindex(df_feat["timestamp"], method="ffill").values
         df_feat["target"] = triple_barrier_label(
             df_feat,
-            trial.suggest_int("hor", 5, 24),
+            3,
             trial.suggest_float("thr_up", 0.002, 0.01),
             trial.suggest_float("thr_dn", 0.002, 0.01),
         )
