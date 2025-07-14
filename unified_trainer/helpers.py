@@ -9,8 +9,13 @@ from sklearn.base import BaseEstimator, TransformerMixin
 
 
 def read_raw_csv(path: Path, chunksize: int = 5_000_000) -> Generator[pd.DataFrame, None, None]:
+
+    """Yield normalised CSV chunks (supports ZIP) with lower case columns."""
+    for chunk in pd.read_csv(path, chunksize=chunksize, compression="infer"):
+
     """Yield normalized CSV chunks with lower-case column names."""
     for chunk in pd.read_csv(path, chunksize=chunksize):
+
         chunk.columns = [c.strip().lower().replace(" ", "_") for c in chunk.columns]
         yield chunk
 
@@ -23,7 +28,19 @@ def make_bars(df: pd.DataFrame, freq: str = "5T") -> pd.DataFrame:
     df.set_index(ts_col, inplace=True)
     price_col = "price"
     if price_col not in df.columns:
+
+        for c in (
+            "close",
+            "bid",
+            "ask",
+            "last",
+            "tick_last",
+            "tick_bid",
+            "tick_ask",
+        ):
+
         for c in ("close", "bid", "ask", "last"):
+
             if c in df.columns:
                 price_col = c
                 break
@@ -34,7 +51,16 @@ def make_bars(df: pd.DataFrame, freq: str = "5T") -> pd.DataFrame:
 
 
 class FeatureBuilder:
+
+    """Simple technical feature calculator for bar data.
+
+    This builder exposes many optional feature groups that can be toggled or
+    parametrised. The default settings result in more than 25 numeric features
+    which are sufficient for basic ML models.
+    """
+
     """Simple technical feature calculator for bar data."""
+
 
     def __init__(self, bars: pd.DataFrame):
         self.df = bars.copy()
@@ -45,13 +71,102 @@ class FeatureBuilder:
         self.df["bar_return"] = self.df["close"].pct_change().fillna(0)
         return self
 
+
+    def add_lags(self, lags: Iterable[int] = (1, 5, 12, 24)) -> "FeatureBuilder":
+
     def add_lags(self, lags: Iterable[int] = (5, 12)) -> "FeatureBuilder":
+
         for l in lags:
             self.df[f"close_lag{l}"] = self.df["close"].shift(l)
         return self
 
+
+    def add_volume(self, wins: Tuple[int, int] = (12, 72)) -> "FeatureBuilder":
+        if "volume" not in self.df.columns:
+            self.df["volume"] = 0.0
+        short, long = wins
+        self.df["vol_short"] = self.df["volume"].rolling(short).sum().fillna(0)
+        self.df["vol_long"] = self.df["volume"].rolling(long).sum().fillna(0)
+        return self
+
+    def add_returns(self, wins: Tuple[int, int] = (1, 5)) -> "FeatureBuilder":
+        s1, s5 = wins
+        self.df["ret_1"] = self.df["close"].pct_change(s1).fillna(0)
+        self.df["ret_5"] = self.df["close"].pct_change(s5).fillna(0)
+        return self
+
+    def add_sma(self, wins: Tuple[int, int] = (12, 72)) -> "FeatureBuilder":
+        fast, slow = wins
+        self.df["sma_fast"] = self.df["close"].rolling(fast).mean().bfill()
+        self.df["sma_slow"] = self.df["close"].rolling(slow).mean().bfill()
+        return self
+
+    def add_ema(self, spans: Tuple[int, int] = (12, 26)) -> "FeatureBuilder":
+        fast, slow = spans
+        self.df["ema_fast"] = self.df["close"].ewm(span=fast, adjust=False).mean()
+        self.df["ema_slow"] = self.df["close"].ewm(span=slow, adjust=False).mean()
+        return self
+
+    def add_rsi(self, win: int = 14) -> "FeatureBuilder":
+        d = self.df["close"].diff()
+        up = d.clip(lower=0)
+        dn = -d.clip(upper=0)
+        rs = up.ewm(alpha=1 / win, adjust=False).mean() / (dn.ewm(alpha=1 / win, adjust=False).mean() + 1e-8)
+        self.df["rsi"] = 100 - 100 / (1 + rs)
+        return self
+
+    def add_macd(self, fast: int = 12, slow: int = 26, sig: int = 9) -> "FeatureBuilder":
+        ema_fast = self.df["close"].ewm(span=fast, adjust=False).mean()
+        ema_slow = self.df["close"].ewm(span=slow, adjust=False).mean()
+        macd = ema_fast - ema_slow
+        self.df["macd"] = macd
+        self.df["macd_signal"] = macd.ewm(span=sig, adjust=False).mean()
+        return self
+
+    def add_bollinger(self, win: int = 20, n_std: float = 2.0) -> "FeatureBuilder":
+        ma = self.df["close"].rolling(win).mean()
+        std = self.df["close"].rolling(win).std()
+        self.df["boll_up"] = ma + n_std * std
+        self.df["boll_dn"] = ma - n_std * std
+        return self
+
+    def add_ofi(self) -> "FeatureBuilder":
+        if "volume" not in self.df.columns:
+            self.df["volume"] = 0.0
+        self.df["ofi_min"] = self.df["close"].diff().fillna(0) * self.df["volume"]
+        return self
+
+    def build(
+        self,
+        lags: Iterable[int] = (1, 5, 12, 24),
+        vol_wins: Tuple[int, int] = (12, 72),
+        ret_wins: Tuple[int, int] = (1, 5),
+        sma_wins: Tuple[int, int] = (12, 72),
+        ema_spans: Tuple[int, int] = (12, 26),
+        rsi_win: int = 14,
+        macd: Tuple[int, int, int] = (12, 26, 9),
+        boll: Tuple[int, float] = (20, 2.0),
+    ) -> pd.DataFrame:
+        """Return dataframe with engineered features."""
+        f_macd, s_macd, sig = macd
+        b_win, b_std = boll
+        return (
+            self.add_basic()
+            .add_lags(lags)
+            .add_volume(vol_wins)
+            .add_returns(ret_wins)
+            .add_sma(sma_wins)
+            .add_ema(ema_spans)
+            .add_rsi(rsi_win)
+            .add_macd(f_macd, s_macd, sig)
+            .add_bollinger(b_win, b_std)
+            .add_ofi()
+            .df.fillna(0)
+        )
+
     def build(self) -> pd.DataFrame:
         return self.add_basic().add_lags().df.fillna(0)
+
 
 
 class MarketSentimentTransformer(BaseEstimator, TransformerMixin):
@@ -149,6 +264,49 @@ def triple_barrier_label(df: pd.DataFrame, hor: int, thr_up: float, thr_dn: floa
     return label
 
 
+
+def high_low_trend_label(
+    df: pd.DataFrame,
+    window: int,
+    trend: pd.Series | None = None,
+    up_thresh: float = 0.55,
+    down_thresh: float = 0.45,
+) -> np.ndarray:
+    """Label highs/lows within a rolling window optionally conditioned on trend.
+
+    Parameters
+    ----------
+    df : DataFrame
+        Must contain ``timestamp``, ``high`` and ``low`` columns.
+    window : int
+        Number of bars to look back (e.g. ``3`` for 30 minutes on 10‑minute bars).
+    trend : Series, optional
+        If provided, long entries (1) are only labelled when ``trend >= up_thresh``
+        and short entries (0) when ``trend <= down_thresh``.
+
+    Returns
+    -------
+    np.ndarray
+        Array with 1 for lows, 0 for highs and -1 otherwise.
+    """
+    highs = df["high"].rolling(window, min_periods=window).max()
+    lows = df["low"].rolling(window, min_periods=window).min()
+    is_high = df["high"] >= highs
+    is_low = df["low"] <= lows
+    labels = np.full(len(df), -1, dtype=np.int8)
+
+    if trend is not None:
+        tr = trend.reindex(df["timestamp"], method="ffill").to_numpy()
+        labels[(is_low) & (tr >= up_thresh)] = 1
+        labels[(is_high) & (tr <= down_thresh)] = 0
+    else:
+        labels[is_low] = 1
+        labels[is_high] = 0
+
+    labels[is_high & is_low] = -1
+    return labels
+
+
 def leak_filter(df: pd.DataFrame, horizon_h: int) -> pd.DataFrame:
     """Remove rows that would leak future horizon."""
     df = ensure_timestamp(df)
@@ -197,6 +355,21 @@ def filter_valid_estimators(models: dict) -> List[Tuple[str, BaseEstimator]]:
             continue
         valid.append((name, est))
     return valid
+
+
+
+def stack_predict(model_dict: dict, X: pd.DataFrame) -> np.ndarray:
+    """Return stacked probability for class 1 from rf+gb meta ensemble."""
+    rf = model_dict.get("rf")
+    gb = model_dict.get("gb")
+    meta = model_dict.get("meta")
+    arr = X.to_numpy()
+    stack = np.column_stack([
+        rf.predict_proba(arr)[:, 1],
+        gb.predict_proba(arr)[:, 1],
+    ])
+    return meta.predict_proba(stack)[:, 1]
+
 
 
 def split_datasets(df: pd.DataFrame, is_end_date: pd.Timestamp, oos1_end_date: pd.Timestamp) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:

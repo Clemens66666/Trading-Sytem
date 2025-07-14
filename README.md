@@ -23,6 +23,20 @@ python unified_trainer/longtrend_trainer.py
 python unified_trainer/entry_trainer.py
 ```
 
+
+The scripts read the raw tick data specified in `raw_tick_path` and engineer
+more than twenty‑five technical features through `FeatureBuilder`. Each trainer
+uses a dedicated label:
+
+* **Longtrend** – triple barrier label predicting the next 1‑3 hours.
+* **Entry** – labels highs and lows within a 30‑minute window on 10‑minute bars.
+* **Exit** – binary label predicting if the next 5 minute bar closes higher.
+
+Feature windows and model hyperparameters are tuned via Optuna using a rolling
+time series split. After optimisation a final model is trained on the full IS
+range and stored as a pickle at the location defined under `output_paths` in
+`config.yaml`.
+=======
 The scripts read the raw tick data specified in `raw_tick_path`, build a simple
 feature frame and split it into in‑sample (IS) and two out‑of‑sample (OOS)
 segments via `split_datasets`. Hyperparameters are optimised with Optuna using a
@@ -30,10 +44,15 @@ rolling time series split. After optimisation a final model is trained on the
 full IS range and stored as a pickle at the location defined under
 `output_paths` in `config.yaml`.
 
+
 Each pickle contains:
 
 * the trained models (`rf`, `gb` and logistic meta model)
+
+* the preprocessor (here `None`)
+=======
 * a placeholder for the preprocessor (`None` in this example)
+
 * the entire configuration
 * date ranges for IS, OOS1 and OOS2
 
