@@ -1,0 +1,10 @@
+raw_tick_path: "E:/RawTickData3.parquet"
+output_paths:
+  exit: "exit_stack_v5.pkl"
+  longtrend: "longtrend_ensemble_v3.pkl"
+  entry: "entry_stack_v2.pkl"
+cv:
+  n_splits: 5
+  seed: 42
+optuna:
+  n_trials: 80
