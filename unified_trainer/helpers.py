@@ -242,6 +242,48 @@ def triple_barrier_label(df: pd.DataFrame, hor: int, thr_up: float, thr_dn: floa
     return label
 
 
+def high_low_trend_label(
+    df: pd.DataFrame,
+    window: int,
+    trend: pd.Series | None = None,
+    up_thresh: float = 0.55,
+    down_thresh: float = 0.45,
+) -> np.ndarray:
+    """Label highs/lows within a rolling window optionally conditioned on trend.
+
+    Parameters
+    ----------
+    df : DataFrame
+        Must contain ``timestamp``, ``high`` and ``low`` columns.
+    window : int
+        Number of bars to look back (e.g. ``3`` for 30 minutes on 10‑minute bars).
+    trend : Series, optional
+        If provided, long entries (1) are only labelled when ``trend >= up_thresh``
+        and short entries (0) when ``trend <= down_thresh``.
+
+    Returns
+    -------
+    np.ndarray
+        Array with 1 for lows, 0 for highs and -1 otherwise.
+    """
+    highs = df["high"].rolling(window, min_periods=window).max()
+    lows = df["low"].rolling(window, min_periods=window).min()
+    is_high = df["high"] >= highs
+    is_low = df["low"] <= lows
+    labels = np.full(len(df), -1, dtype=np.int8)
+
+    if trend is not None:
+        tr = trend.reindex(df["timestamp"], method="ffill").to_numpy()
+        labels[(is_low) & (tr >= up_thresh)] = 1
+        labels[(is_high) & (tr <= down_thresh)] = 0
+    else:
+        labels[is_low] = 1
+        labels[is_high] = 0
+
+    labels[is_high & is_low] = -1
+    return labels
+
+
 def leak_filter(df: pd.DataFrame, horizon_h: int) -> pd.DataFrame:
     """Remove rows that would leak future horizon."""
     df = ensure_timestamp(df)
