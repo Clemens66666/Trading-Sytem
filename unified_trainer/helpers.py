@@ -9,8 +9,13 @@ from sklearn.base import BaseEstimator, TransformerMixin
 
 
 def read_raw_csv(path: Path, chunksize: int = 5_000_000) -> Generator[pd.DataFrame, None, None]:
+
     """Yield normalised CSV chunks (supports ZIP) with lower case columns."""
     for chunk in pd.read_csv(path, chunksize=chunksize, compression="infer"):
+
+    """Yield normalized CSV chunks with lower-case column names."""
+    for chunk in pd.read_csv(path, chunksize=chunksize):
+
         chunk.columns = [c.strip().lower().replace(" ", "_") for c in chunk.columns]
         yield chunk
 
@@ -23,6 +28,7 @@ def make_bars(df: pd.DataFrame, freq: str = "5T") -> pd.DataFrame:
     df.set_index(ts_col, inplace=True)
     price_col = "price"
     if price_col not in df.columns:
+
         for c in (
             "close",
             "bid",
@@ -32,6 +38,9 @@ def make_bars(df: pd.DataFrame, freq: str = "5T") -> pd.DataFrame:
             "tick_bid",
             "tick_ask",
         ):
+
+        for c in ("close", "bid", "ask", "last"):
+
             if c in df.columns:
                 price_col = c
                 break
@@ -42,12 +51,16 @@ def make_bars(df: pd.DataFrame, freq: str = "5T") -> pd.DataFrame:
 
 
 class FeatureBuilder:
+
     """Simple technical feature calculator for bar data.
 
     This builder exposes many optional feature groups that can be toggled or
     parametrised. The default settings result in more than 25 numeric features
     which are sufficient for basic ML models.
     """
+
+    """Simple technical feature calculator for bar data."""
+
 
     def __init__(self, bars: pd.DataFrame):
         self.df = bars.copy()
@@ -58,10 +71,15 @@ class FeatureBuilder:
         self.df["bar_return"] = self.df["close"].pct_change().fillna(0)
         return self
 
+
     def add_lags(self, lags: Iterable[int] = (1, 5, 12, 24)) -> "FeatureBuilder":
+
+    def add_lags(self, lags: Iterable[int] = (5, 12)) -> "FeatureBuilder":
+
         for l in lags:
             self.df[f"close_lag{l}"] = self.df["close"].shift(l)
         return self
+
 
     def add_volume(self, wins: Tuple[int, int] = (12, 72)) -> "FeatureBuilder":
         if "volume" not in self.df.columns:
@@ -145,6 +163,10 @@ class FeatureBuilder:
             .add_ofi()
             .df.fillna(0)
         )
+
+    def build(self) -> pd.DataFrame:
+        return self.add_basic().add_lags().df.fillna(0)
+
 
 
 class MarketSentimentTransformer(BaseEstimator, TransformerMixin):
@@ -242,6 +264,7 @@ def triple_barrier_label(df: pd.DataFrame, hor: int, thr_up: float, thr_dn: floa
     return label
 
 
+
 def high_low_trend_label(
     df: pd.DataFrame,
     window: int,
@@ -334,6 +357,7 @@ def filter_valid_estimators(models: dict) -> List[Tuple[str, BaseEstimator]]:
     return valid
 
 
+
 def stack_predict(model_dict: dict, X: pd.DataFrame) -> np.ndarray:
     """Return stacked probability for class 1 from rf+gb meta ensemble."""
     rf = model_dict.get("rf")
@@ -345,6 +369,7 @@ def stack_predict(model_dict: dict, X: pd.DataFrame) -> np.ndarray:
         gb.predict_proba(arr)[:, 1],
     ])
     return meta.predict_proba(stack)[:, 1]
+
 
 
 def split_datasets(df: pd.DataFrame, is_end_date: pd.Timestamp, oos1_end_date: pd.Timestamp) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
