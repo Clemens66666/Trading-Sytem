@@ -9,13 +9,8 @@ from sklearn.base import BaseEstimator, TransformerMixin
 
 
 def read_raw_csv(path: Path, chunksize: int = 5_000_000) -> Generator[pd.DataFrame, None, None]:
-
     """Yield normalised CSV chunks (supports ZIP) with lower case columns."""
     for chunk in pd.read_csv(path, chunksize=chunksize, compression="infer"):
-
-    """Yield normalized CSV chunks with lower-case column names."""
-    for chunk in pd.read_csv(path, chunksize=chunksize):
-
         chunk.columns = [c.strip().lower().replace(" ", "_") for c in chunk.columns]
         yield chunk
 
@@ -28,7 +23,6 @@ def make_bars(df: pd.DataFrame, freq: str = "5T") -> pd.DataFrame:
     df.set_index(ts_col, inplace=True)
     price_col = "price"
     if price_col not in df.columns:
-
         for c in (
             "close",
             "bid",
@@ -38,9 +32,6 @@ def make_bars(df: pd.DataFrame, freq: str = "5T") -> pd.DataFrame:
             "tick_bid",
             "tick_ask",
         ):
-
-        for c in ("close", "bid", "ask", "last"):
-
             if c in df.columns:
                 price_col = c
                 break
@@ -59,8 +50,6 @@ class FeatureBuilder:
     which are sufficient for basic ML models.
     """
 
-    """Simple technical feature calculator for bar data."""
-
 
     def __init__(self, bars: pd.DataFrame):
         self.df = bars.copy()
@@ -73,9 +62,6 @@ class FeatureBuilder:
 
 
     def add_lags(self, lags: Iterable[int] = (1, 5, 12, 24)) -> "FeatureBuilder":
-
-    def add_lags(self, lags: Iterable[int] = (5, 12)) -> "FeatureBuilder":
-
         for l in lags:
             self.df[f"close_lag{l}"] = self.df["close"].shift(l)
         return self
@@ -163,11 +149,6 @@ class FeatureBuilder:
             .add_ofi()
             .df.fillna(0)
         )
-
-    def build(self) -> pd.DataFrame:
-        return self.add_basic().add_lags().df.fillna(0)
-
-
 
 class MarketSentimentTransformer(BaseEstimator, TransformerMixin):
     """Rolling sentiment score based on price and volume."""
